@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShotTable — Screenshot to Table</title>
+<style>
+:root { --bg:#0F0F0F; --card:#1A1A1A; --text:#F5F0E6; --muted:#A8A29E; --accent:#22C55E; --border:#2A2A2A; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:2rem 1rem}
+.wrap{max-width:1000px;margin:0 auto}
+h1{font-size:2.2rem;font-weight:600;letter-spacing:-0.03em;text-align:center}
+.sub{color:var(--muted);text-align:center;margin:0.5rem 0 2rem}
+.drop{background:var(--card);border:2px dashed var(--border);border-radius:16px;padding:3rem;text-align:center;cursor:pointer;transition:border .15s}
+.drop:hover,.drop.dragover{border-color:var(--accent)}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;margin-top:1.5rem}
+button{background:var(--accent);color:#000;border:none;padding:.7rem 1.2rem;border-radius:10px;font-weight:600;cursor:pointer;margin:.4rem .4rem 0 0}
+button.sec{background:#333;color:var(--text)}
+table{width:100%;border-collapse:collapse;margin-top:1rem;font-size:.9rem}
+th,td{border:1px solid var(--border);padding:.4rem;text-align:left}
+th{background:#111;color:var(--muted)}
+td input{width:100%;background:transparent;border:none;color:var(--text);font-size:.9rem}
+#status{margin-top:1rem;color:var(--muted);font-size:.9rem}
+footer{text-align:center;color:var(--muted);font-size:.8rem;margin-top:2rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ShotTable</h1>
+  <p class="sub">Drop a screenshot of any table. Get an editable grid + CSV. Everything stays in your browser.</p>
+  <div class="drop" id="drop">
+    <p>Drop image or click to select</p>
+    <input type="file" id="file" accept="image/*" hidden>
+    <p style="color:var(--muted);font-size:.8rem;margin-top:.5rem">PNG, JPG, WEBP · Best with clear tables</p>
+  </div>
+  <div class="panel" id="panel" style="display:none">
+    <div id="status">Processing…</div>
+    <div style="overflow-x:auto"><table id="table"><thead></thead><tbody></tbody></table></div>
+    <div style="margin-top:1rem">
+      <button id="csv">Download CSV</button>
+      <button id="copy" class="sec">Copy CSV</button>
+      <button id="clear" class="sec">Clear</button>
+    </div>
+  </div>
+  <footer>Client-side OCR via Tesseract.js · No uploads · MIT</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const drop=document.getElementById('drop'), file=document.getElementById('file'), panel=document.getElementById('panel'), status=document.getElementById('status'), table=document.getElementById('table');
+let rows=[];
+drop.onclick=()=>file.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('dragover')};
+drop.ondragleave=()=>drop.classList.remove('dragover');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('dragover');handle(e.dataTransfer.files[0])};
+file.onchange=()=>handle(file.files[0]);
+async function handle(f){
+  if(!f||!f.type.startsWith('image/')) return;
+  panel.style.display='block';
+  status.textContent='Running OCR… this can take 10-30s';
+  try{
+    const {data:{text}}=await Tesseract.recognize(f,'eng');
+    rows=parseTable(text);
+    render();
+    status.textContent='Done. Edit cells if needed.';
+  }catch(e){status.textContent='Error: '+e.message}
+}
+function parseTable(text){
+  const lines=text.split(/\n/).map(l=>l.trim()).filter(Boolean);
+  return lines.map(l=>l.split(/\s{2,}|\t|\|/g).map(c=>c.trim()).filter(c=>c));
+}
+function render(){
+  const thead=table.querySelector('thead'), tbody=table.querySelector('tbody');
+  thead.innerHTML=''; tbody.innerHTML='';
+  if(!rows.length) return;
+  const max=Math.max(...rows.map(r=>r.length));
+  const trh=document.createElement('tr');
+  for(let i=0;i<max;i++) trh.innerHTML+=`<th>Col ${i+1}</th>`;
+  thead.appendChild(trh);
+  rows.forEach((r,ri)=>{
+    const tr=document.createElement('tr');
+    for(let i=0;i<max;i++){
+      const val=r[i]||'';
+      tr.innerHTML+=`<td><input value="${val.replace(/"/g,'&quot;')}" data-r="${ri}" data-c="${i}"></td>`;
+    }
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('input').forEach(inp=>{
+    inp.oninput=e=>{
+      const r=+e.target.dataset.r, c=+e.target.dataset.c;
+      if(!rows[r]) rows[r]=[];
+      rows[r][c]=e.target.value;
+    };
+  });
+}
+function toCSV(){
+  return rows.map(r=>r.map(v=>`"${(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+}
+document.getElementById('csv').onclick=()=>{
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([toCSV()],{type:'text/csv'}));
+  a.download='table.csv'; a.click();
+};
+document.getElementById('copy').onclick=()=>navigator.clipboard.writeText(toCSV()).then(()=>status.textContent='Copied');
+document.getElementById('clear').onclick=()=>{rows=[];panel.style.display='none';table.innerHTML='<thead></thead><tbody></tbody>'};
+</script>
+</body>
+</html>
